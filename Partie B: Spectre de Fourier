@@ -1,0 +1,31 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+start_time = time.time()
+filename = "/content/drive/MyDrive/ECG200/ image_ia_deux.webp"
+image = cv2.imread(filename)
+
+
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+gray_float = np.float32(gray)
+
+
+F = np.fft.fft2(gray_float)
+F_shifted = np.fft.fftshift(F)
+
+
+magnitude = np.abs(F_shifted)
+magnitude_log = np.log(1 + magnitude)
+plt.figure(figsize=(12,5))
+plt.subplot(1,2,1)
+plt.imshow(gray, cmap='gray')
+plt.title("Image en niveaux de gris")
+plt.axis('off')
+plt.subplot(1,2,2)
+plt.imshow(magnitude_log, cmap='gray')
+plt.title("Spectre de Fourier (propre)")
+plt.axis('off')
+plt.show()
+end_time = time.time()
+print(f"Le temps d'exécution du programme est {end_time - start_time} secondes.")
