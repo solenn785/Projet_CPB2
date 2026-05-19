@@ -1,0 +1,185 @@
+import os
+import random
+import numpy as np
+from PIL import Image
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_predict, StratifiedKFold
+from sklearn.metrics import accuracy_score, confusion_matrix # Ajout de confusion_matrix
+import warnings
+warnings.filterwarnings('ignore')
+import time
+
+
+def computeHistogramCouleur(image):
+    histogram_r = [0 for i in range(256)]
+    histogram_g = [0 for i in range(256)]
+    histogram_b = [0 for i in range(256)]
+    pix = image.load()
+    height = image.height
+    width = image.width
+    for w in range(width):  
+        for h in range(height):
+            pix_r, pix_g, pix_b = pix[w, h]
+            histogram_r[pix_r] += 1
+            histogram_g[pix_g] += 1
+            histogram_b[pix_b] += 1
+    return histogram_r, histogram_g, histogram_b
+
+
+
+def moyenne_histogramme(histogramme):
+    total_pixels = 0
+    somme = 0
+    for i in range(256):
+        total_pixels += histogramme[i]
+        somme += i * histogramme[i]
+    return somme / total_pixels
+
+def variance_histogramme(histogramme,moy):
+    total_pixels = 0
+    for i in range(256):
+        total_pixels += histogramme[i]
+    moy = moyenne_histogramme(histogramme)
+    somme_carres = 0
+    for i in range(256):
+        somme_carres += ((i - moy) ** 2) * histogramme[i]    
+    return somme_carres / total_pixels
+
+def asymetrie_histogramme(histogramme,moy,var):
+    total_pixels = 0
+    for i in range(256):
+        total_pixels += histogramme[i]
+    moy = moyenne_histogramme(histogramme)
+    var = variance_histogramme(histogramme, moy)    
+    sigma = var ** 0.5
+    somme_centree_cube = 0
+    for i in range(256):
+        somme_centree_cube += ((i - moy) ** 3) * histogramme[i]
+    return (somme_centree_cube / total_pixels) / (sigma ** 3)
+
+def aplatissement_histogramme(histogramme,moy,var):
+    total_pixels = 0
+    for i in range(256):
+        total_pixels += histogramme[i]    
+    moy = moyenne_histogramme(histogramme)
+    var = variance_histogramme(histogramme, moy)    
+    sigma = var
+    somme_centree_quatre = 0
+    for i in range(256):
+        somme_centree_quatre += ((i - moy) ** 4) * histogramme[i]
+    
+    kurtosis = (somme_centree_quatre / total_pixels) / (sigma ** 2)
+    return kurtosis - 3.0  
+
+def entropie_histogramme(histogramme):
+    total_pixels = 0
+    for i in range(256):
+        total_pixels += histogramme[i]
+    entropie = 0.0
+    for i in range(256):
+        compteur = histogramme[i]
+        if compteur > 0:
+            p = compteur / total_pixels
+            entropie -= p * np.log(p)
+    return entropie
+
+
+
+def extraire_vecteur(chemin_image):
+    img = Image.open(chemin_image).convert('RGB')
+    hist_r, hist_g, hist_b = computeHistogramCouleur(img)
+    
+    vecteur = []
+    for histogramme in (hist_r, hist_g, hist_b):
+        moy = moyenne_histogramme(histogramme)
+        var = variance_histogramme(histogramme, moy)
+        asym = asymetrie_histogramme(histogramme, moy, var)
+        aplat = aplatissement_histogramme(histogramme, moy, var)
+        ent = entropie_histogramme(histogramme)
+        vecteur.extend([moy, var, asym, aplat, ent])
+    return np.array(vecteur)  # 15 éléments
+
+
+
+def charger_toutes_les_images(dossier_parent):
+    extensions = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
+    images = []
+    for theme in os.listdir(dossier_parent):
+        chemin_theme = os.path.join(dossier_parent, theme)
+        if os.path.isdir(chemin_theme):
+            for fichier in os.listdir(chemin_theme):
+                if fichier.lower().endswith(extensions):
+                    images.append(os.path.join(chemin_theme, fichier))
+    return images
+
+def preparer_dataset(dossier_ai, dossier_reel, nb_par_classe):
+    print("Chargement des images...")
+    toutes_ai = charger_toutes_les_images(dossier_ai)
+    toutes_reelles = charger_toutes_les_images(dossier_reel)
+    
+    reelles = random.sample(toutes_reelles, nb_par_classe)
+    ia = random.sample(toutes_ai, nb_par_classe)
+        
+    print(f"Nombre d'images réelles : {len(reelles)}")
+    print(f"Nombre d'images IA      : {len(ia)}")
+    
+    x, y, noms = [], [], []
+    for f in reelles:
+        x.append(extraire_vecteur(f))
+        y.append(0)  # 0 = réelle
+        noms.append(os.path.basename(f))
+
+    for f in ia:
+        x.append(extraire_vecteur(f))
+        y.append(1)  # 1 = IA
+        noms.append(os.path.basename(f))
+    return np.array(x), np.array(y), noms
+
+
+
+def predire_et_tabuler(x, y, noms):
+    clf = LogisticRegression(max_iter=2000, class_weight='balanced')
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    y_pred = cross_val_predict(clf, x, y, cv=skf)
+    
+    # Tableau
+    df = pd.DataFrame({'Image': noms,
+        'Verite': ['Reelle' if v == 0 else 'IA' for v in y],
+        'Prediction': ['Reelle' if p == 0 else 'IA' for p in y_pred]})
+    
+    taux_global = accuracy_score(y, y_pred)
+    
+    cm = confusion_matrix(y, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    
+    taux_reel = tn / (tn + fp) if (tn + fp) > 0 else 0
+    taux_ia = tp / (tp + fn) if (tp + fn) > 0 else 0
+    
+    return df, taux_global, taux_reel, taux_ia
+
+
+
+def evaluer_modele(dossier_ai, dossier_reel, nb_par_classe):
+    x, y, noms = preparer_dataset(dossier_ai, dossier_reel, nb_par_classe)
+    df_resultats, taux_global, taux_reel, taux_ia = predire_et_tabuler(x, y, noms)
+    
+    print("\n RÉSULTATS DE L'ÉVALUATION")
+    print(f"Taux de réussite GLOBAL        : {taux_global:.2%}")
+    print(f"Images RÉELLES bien prédites   : {taux_reel:.2%}")
+    print(f"Images IA bien prédites        : {taux_ia:.2%}")
+    
+    print("\n 10 premières lignes du tableau :")
+    print(df_resultats.head(10).to_string(index=False))
+    
+    return df_resultats, taux_global
+
+
+if __name__ == "__main__":
+    DOSSIER_AI   = r"C:\Users\solen\Documents\CPB2\S4\projet\dataset\Ai_generated_dataset"
+    DOSSIER_REEL = r"C:\Users\solen\Documents\CPB2\S4\projet\dataset\real_dataset"
+    
+    debut = time.time()
+    df, taux = evaluer_modele(DOSSIER_AI, DOSSIER_REEL, 250)
+    fin = time.time()
+    print(f"\nTemps d'exécution total : {fin - debut:.2f} secondes")
