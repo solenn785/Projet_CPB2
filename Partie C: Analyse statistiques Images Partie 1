@@ -1,0 +1,48 @@
+from PIL import Image
+import matplotlib.pyplot as plt
+
+
+im = Image.open("/content/drive/MyDrive/ECG200/image1.png")
+
+
+def computeHistogramCouleur(image):
+    histogram_r = [0 for i in range(256)]
+    histogram_g = [0 for i in range(256)]
+    histogram_b = [0 for i in range(256)]
+    pix = image.load()
+    height = image.height
+    width = image.width
+    for w in range(width):  
+        for h in range(height):
+            pix_r,pix_g,pix_b = pix[w, h]
+            histogram_r[pix_r] += 1
+            histogram_g[pix_g] += 1
+            histogram_b[pix_b] += 1
+    return histogram_r, histogram_g, histogram_b
+
+
+
+
+
+
+def displayHistogram(histogram_r, histogram_g, histogram_b):
+    fig, ax = plt.subplots()
+   
+    ax.plot(histogram_r, color='red', label='Rouge')
+    ax.plot(histogram_g, color='green', label='Vert')
+    ax.plot(histogram_b, color='blue', label='Bleu')
+   
+    ax.set_xlabel('Valeur du pixel')
+    ax.set_ylabel('Nombre de pixels')
+    ax.set_title('Histogramme des couleurs')
+    ax.legend()
+   
+    plt.show()
+
+
+
+
+
+
+histogram_r, histogram_g, histogram_b = computeHistogramCouleur(im)
+displayHistogram(histogram_r, histogram_g, histogram_b)
